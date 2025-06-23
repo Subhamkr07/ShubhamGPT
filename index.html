@@ -44,6 +44,9 @@
             --thread-item-active: #d0d0d0; /* Kept for theme consistency */
             --modal-bg: rgba(0, 0, 0, 0.5);
             --modal-content-bg: #ffffff;
+            --dropdown-bg: #ffffff;
+            --dropdown-border: var(--border-color);
+            --dropdown-item-hover-bg: #f0f0f0;
         }
 
         .dark-mode {
@@ -76,6 +79,9 @@
             --thread-item-active: #4a5a75; /* Kept for theme consistency */
             --modal-bg: rgba(0, 0, 0, 0.7);
             --modal-content-bg: #1e293b;
+            --dropdown-bg: #1e293b;
+            --dropdown-border: rgba(255, 255, 255, 0.1);
+            --dropdown-item-hover-bg: #334155;
         }
 
         /* Apply variables */
@@ -113,6 +119,14 @@
             backdrop-filter: blur(10px);
         }
 
+        .logo-container {
+            position: relative;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
         .logo {
             font-size: 26px;
             font-weight: 700;
@@ -122,6 +136,55 @@
         .logo .gpt-text {
             font-weight: 400;
             opacity: 0.7;
+        }
+
+        /* Model Dropdown */
+        .model-dropdown {
+            position: absolute;
+            top: 100%; /* Position below the logo */
+            left: 0;
+            background-color: var(--dropdown-bg);
+            border: 1px solid var(--dropdown-border);
+            border-radius: 8px;
+            box-shadow: 0 4px 12px var(--shadow-medium);
+            padding: 8px 0;
+            min-width: 200px;
+            z-index: 20;
+            opacity: 0;
+            transform: translateY(-10px);
+            visibility: hidden;
+            transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+        }
+
+        .model-dropdown.show {
+            opacity: 1;
+            transform: translateY(0);
+            visibility: visible;
+        }
+
+        .model-dropdown-item {
+            padding: 10px 16px;
+            cursor: pointer;
+            color: var(--text-color);
+            transition: background-color 0.15s ease;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .model-dropdown-item:hover {
+            background-color: var(--dropdown-item-hover-bg);
+        }
+
+        .model-dropdown-item.selected {
+            font-weight: 600;
+            color: #1e88e5; /* Highlight selected model */
+        }
+
+        .model-dropdown-item.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            background-color: transparent;
         }
 
         /* Scrollable Chat Area */
@@ -538,9 +601,19 @@
         <header class="header">
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-4">
-                    <!-- Removed: Sidebar Toggle Button -->
-                    <div class="logo">
-                        Shubham <span class="gpt-text">GPT</span>
+                    <div id="logoContainer" class="logo-container">
+                        <div class="logo">
+                            Shubham <span class="gpt-text">GPT</span>
+                        </div>
+                        <span id="modelDropdownArrow" class="material-icons text-xl transition-transform duration-200">arrow_drop_down</span>
+                        <!-- Model Selection Dropdown -->
+                        <div id="modelDropdown" class="model-dropdown">
+                            <div class="model-dropdown-item selected" data-model-id="gemini-flash">Gemini 2.0 Flash (Default)</div>
+                            <div class="model-dropdown-item" data-model-id="deepseek-r1">DeepSeek: R1</div>
+                            <div class="model-dropdown-item" data-model-id="meta-llama-3-3">Meta: Llama 3.3</div>
+                            <div class="model-dropdown-item" data-model-id="qwen3">Qwen3</div>
+                            <div class="model-dropdown-item" data-model-id="deepseek-v3">DeepSeek V3</div>
+                        </div>
                     </div>
                 </div>
                 <div class="flex items-center gap-3">
@@ -696,7 +769,6 @@
         const passwordInput = document.getElementById('passwordInput');
         const phoneSignInForm = document.getElementById('phoneSignInForm');
         const phoneNumberInput = document.getElementById('phoneNumberInput');
-        const phoneSignInBtn = document.getElementById('phoneSignInBtn');
         const verificationCodeInput = document.getElementById('verificationCodeInput');
         const verifyOtpForm = document.getElementById('verifyOtpForm');
         const verifyOtpBtn = document.getElementById('verifyOtpBtn');
@@ -707,12 +779,12 @@
         const googleSignInBtnModal = document.getElementById('googleSignInBtnModal');
         const emailSignInBtnModal = document.getElementById('emailSignInBtnModal');
         const phoneSignInBtnModal = document.getElementById('phoneSignInBtnModal');
-        // Removed references to chat history and new chat UI elements
-        // const newChatButton = document.getElementById('newChatButton');
-        // const chatHistorySidebar = document.getElementById('chatHistorySidebar');
-        // const toggleSidebarBtn = document.getElementById('toggleSidebarBtn');
-        // const closeSidebarBtn = document.getElementById('closeSidebarBtn');
-        // const chatThreadsList = document.getElementById('chatThreadsList');
+
+        // New elements for model selection
+        const logoContainer = document.getElementById('logoContainer');
+        const modelDropdown = document.getElementById('modelDropdown');
+        const modelDropdownArrow = document.getElementById('modelDropdownArrow');
+
 
         // Store chat history in an array for the active session only
         let chatHistory = [];
@@ -722,13 +794,53 @@
         let currentUser = null; // Will store Firebase User object
         let guestMessageCount = 0;
         const MAX_GUEST_MESSAGES = 2;
-        // Removed activeChatThreadId and userChatThreads as history persistence is removed
-        // let activeChatThreadId = null;
-        // let userChatThreads = [];
         let confirmationResult = null; // For phone auth OTP
 
-        // HARDCODED API KEY FOR IMMEDIATE FIX (as provided in original code)
-        const API_KEY = "AIzaSyDRp4pUWF7PJ-olOWnDu76v-S1HO3FvxGM";
+        // Define available LLM models
+        const LLM_MODELS = {
+            'gemini-flash': {
+                name: 'Gemini 2.0 Flash (Default)',
+                url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=`,
+                apiKey: "AIzaSyDRp4pUWF7PJ-olOWnDu76v-S1HO3FvxGM", // Original API Key
+                authRequired: false,
+                openRouter: false
+            },
+            'deepseek-r1': {
+                name: 'DeepSeek: R1',
+                url: "https://openrouter.ai/api/v1/chat/completions",
+                apiKey: "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",
+                authRequired: true,
+                openRouter: true,
+                modelName: "deepseek/deepseek-r1-0528:free"
+            },
+            'meta-llama-3-3': {
+                name: 'Meta: Llama 3.3',
+                url: "https://openrouter.ai/api/v1/chat/completions",
+                apiKey: "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",
+                authRequired: true,
+                openRouter: true,
+                modelName: "meta-llama/llama-3.3-70b-instruct:free"
+            },
+            'qwen3': {
+                name: 'Qwen3',
+                url: "https://openrouter.ai/api/v1/chat/completions",
+                apiKey: "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",
+                authRequired: true,
+                openRouter: true,
+                modelName: "qwen/qwen3-235b-a22b:free"
+            },
+            'deepseek-v3': {
+                name: 'DeepSeek V3',
+                url: "https://openrouter.ai/api/v1/chat/completions",
+                apiKey: "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",
+                authRequired: true,
+                openRouter: true,
+                modelName: "deepseek/deepseek-chat-v3-0324:free"
+            }
+        };
+
+        let currentModelId = 'gemini-flash'; // Default model
+        let currentModel = LLM_MODELS[currentModelId];
 
         // Function to swap between send and stop buttons
         const showSendButton = () => {
@@ -999,20 +1111,77 @@
                 await signOut(auth);
                 // Auth state listener will handle UI updates
                 addMessageToChat('bot', 'You have been logged out. Chat history cleared.');
-                // Removed history-related variable resets
                 chatHistory = []; // Clear current session chat history
                 renderChatHistory(); // Render initial welcome message
                 localStorage.setItem('guestMessageCount', '0'); // Reset guest count
                 guestMessageCount = 0;
+                // Reset to default model on logout
+                currentModelId = 'gemini-flash';
+                currentModel = LLM_MODELS[currentModelId];
+                updateModelDropdownSelection();
+                toggleModelDropdownAvailability(false); // Disable model selection for guests
             } catch (error) {
                 console.error("Error signing out:", error);
                 addMessageToChat('bot', 'Error logging out. Please try again.');
             }
         });
 
-        // --- No longer persist chat history to Firestore ---
-        // Removed Firebase Firestore Chat Management functions:
-        // saveChatThread, loadChatThreads, loadChatThreadMessages, startNewChat, renderChatThreadsSidebar
+        // --- Model Selection Logic ---
+        logoContainer.addEventListener('click', (event) => {
+            event.stopPropagation(); // Prevent document click from closing immediately
+            if (currentUser) { // Only allow model selection if logged in
+                modelDropdown.classList.toggle('show');
+                modelDropdownArrow.classList.toggle('rotate-180');
+            } else {
+                addMessageToChat('bot', 'Please log in to select advanced AI models.');
+            }
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (event) => {
+            if (!logoContainer.contains(event.target) && modelDropdown.classList.contains('show')) {
+                modelDropdown.classList.remove('show');
+                modelDropdownArrow.classList.remove('rotate-180');
+            }
+        });
+
+        // Handle model selection click
+        modelDropdown.addEventListener('click', (event) => {
+            const selectedItem = event.target.closest('.model-dropdown-item');
+            if (selectedItem && !selectedItem.classList.contains('disabled')) {
+                const newModelId = selectedItem.dataset.modelId;
+                if (newModelId !== currentModelId) {
+                    currentModelId = newModelId;
+                    currentModel = LLM_MODELS[currentModelId];
+                    updateModelDropdownSelection();
+                    addMessageToChat('bot', `Switched to ${currentModel.name} model.`);
+                }
+                modelDropdown.classList.remove('show');
+                modelDropdownArrow.classList.remove('rotate-180');
+            }
+        });
+
+        // Function to update the visual selection in the dropdown
+        const updateModelDropdownSelection = () => {
+            document.querySelectorAll('.model-dropdown-item').forEach(item => {
+                item.classList.remove('selected');
+                if (item.dataset.modelId === currentModelId) {
+                    item.classList.add('selected');
+                }
+            });
+        };
+
+        // Function to enable/disable model dropdown options based on login status
+        const toggleModelDropdownAvailability = (isLoggedIn) => {
+            document.querySelectorAll('.model-dropdown-item').forEach(item => {
+                const modelData = LLM_MODELS[item.dataset.modelId];
+                if (modelData.authRequired && !isLoggedIn) {
+                    item.classList.add('disabled');
+                } else {
+                    item.classList.remove('disabled');
+                }
+            });
+        };
 
         // --- Event Listeners and Initial Setup ---
 
@@ -1039,6 +1208,12 @@
                 }
             }
 
+            // Check if authenticated model is selected by a guest
+            if (!currentUser && currentModel.authRequired) {
+                addMessageToChat('bot', `The ${currentModel.name} model requires you to be logged in. Please log in or switch to the default Gemini 2.0 Flash model.`);
+                return;
+            }
+
             await addMessageToChat('user', prompt);
             userInput.value = '';
             userInput.style.height = '';
@@ -1051,21 +1226,62 @@
             const signal = abortController.signal;
 
             try {
-                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
+                let apiUrl = currentModel.url;
+                let payload = {};
+                let headers = { 'Content-Type': 'application/json' };
 
-                // Prepare chat history for LLM API call (session-based only)
-                const formattedChatHistory = chatHistory.map(msg => ({
-                    role: msg.sender === 'user' ? 'user' : 'model', // Gemini API expects 'model' for bot
-                    parts: [{ text: msg.rawMessage || msg.user }] // Use raw message for bot, user for user
-                }));
-                // Add the current user's prompt as the last message for context
-                formattedChatHistory.push({ role: "user", parts: [{ text: prompt }] });
+                // Prepare chat history based on the model type
+                let messagesForApi = [];
 
-                const payload = { contents: formattedChatHistory };
+                // Add existing chat history
+                chatHistory.forEach(msg => {
+                    if (currentModel.openRouter) {
+                        messagesForApi.push({
+                            role: msg.sender === 'user' ? 'user' : 'assistant', // OpenRouter expects 'assistant' for bot
+                            content: msg.rawMessage // Content is a plain string for OpenRouter
+                        });
+                    } else {
+                        messagesForApi.push({
+                            role: msg.sender === 'user' ? 'user' : 'model', // Gemini API expects 'model' for bot
+                            parts: [{ text: msg.rawMessage || msg.user }]
+                        });
+                    }
+                });
+
+                // Add the current user's prompt
+                if (currentModel.openRouter) {
+                    messagesForApi.push({ role: "user", content: prompt });
+                } else {
+                    messagesForApi.push({ role: "user", parts: [{ text: prompt }] });
+                }
+
+
+                if (currentModel.openRouter) {
+                    // OpenRouter API structure
+                    headers['Authorization'] = `Bearer ${currentModel.apiKey}`; // Ensure correct bearer token
+                    headers['HTTP-Referer'] = 'https://shubham-gpt.web.app/'; // Replace with your actual site URL
+                    headers['X-Title'] = 'Shubham GPT'; // Replace with your site title
+
+                    payload = {
+                        model: currentModel.modelName,
+                        messages: messagesForApi
+                    };
+                    console.log('OpenRouter API Request:');
+                    console.log('URL:', apiUrl);
+                    console.log('Headers:', headers);
+                    console.log('Payload:', JSON.stringify(payload, null, 2)); // Pretty print payload
+                } else {
+                    // Google Gemini API structure (default)
+                    apiUrl += currentModel.apiKey; // Append API key for Gemini Flash
+                    payload = { contents: messagesForApi };
+                    console.log('Gemini Flash API Request:');
+                    console.log('URL:', apiUrl);
+                    console.log('Payload:', JSON.stringify(payload, null, 2)); // Pretty print payload
+                }
 
                 const response = await fetch(apiUrl, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: headers,
                     body: JSON.stringify(payload),
                     signal: signal
                 });
@@ -1073,14 +1289,29 @@
                 const result = await response.json();
                 let botRawResponseText = 'Sorry, I couldn\'t generate a response. Please try again.';
 
-                if (result.candidates && result.candidates.length > 0 &&
-                    result.candidates[0].content && result.candidates[0].content.parts &&
-                    result.candidates[0].content.parts.length > 0) {
-                    botRawResponseText = result.candidates[0].content.parts[0].text;
-                } else if (response.status === 429) {
-                     botRawResponseText = 'Too many requests. Please wait a moment and try again.';
-                } else if (!signal.aborted) {
-                    console.error('Unexpected API response structure:', result);
+                if (currentModel.openRouter) {
+                    if (result.choices && result.choices.length > 0 && result.choices[0].message && result.choices[0].message.content) {
+                        botRawResponseText = result.choices[0].message.content;
+                    } else if (response.status === 401) {
+                         botRawResponseText = `Error from ${currentModel.name}: Authentication failed. Please check your OpenRouter API key.`;
+                    } else if (response.status === 429) {
+                        botRawResponseText = 'Too many requests. Please wait a moment and try again.';
+                    } else {
+                        console.error('Unexpected OpenRouter API response structure:', result);
+                        botRawResponseText = `Error from ${currentModel.name}: ${JSON.stringify(result)}`; // More specific error
+                    }
+                } else {
+                    // Gemini Flash API structure
+                    if (result.candidates && result.candidates.length > 0 &&
+                        result.candidates[0].content && result.candidates[0].content.parts &&
+                        result.candidates[0].content.parts.length > 0) {
+                        botRawResponseText = result.candidates[0].content.parts[0].text;
+                    } else if (response.status === 429) {
+                        botRawResponseText = 'Too many requests. Please wait a moment and try again.';
+                    } else {
+                        console.error('Unexpected Gemini API response structure:', result);
+                        botRawResponseText = `Error from ${currentModel.name}: ${JSON.stringify(result)}`; // More specific error
+                    }
                 }
 
                 if (!signal.aborted) {
@@ -1095,12 +1326,11 @@
                     console.log('Fetch aborted by user.');
                     await addMessageToChat('bot', 'Response stopped.');
                 } else {
-                    const errorMessage = `An error occurred: ${error.message}. Please check your internet connection and try again.`;
+                    const errorMessage = `An error occurred: ${error.message}. Please check your internet connection or selected model and try again.`;
                     await addMessageToChat('bot', errorMessage);
-                    console.error('Error fetching from Gemini API:', error);
+                    console.error('Error fetching from LLM API:', error);
                 }
             } finally {
-                // This correctly ensures the Send button shows after response completes or is aborted.
                 loadingIndicator.classList.add('hidden');
                 showSendButton(); // Always return to send button
                 abortController = null;
@@ -1167,19 +1397,6 @@
             messageLimitModal.classList.add('hidden');
         });
 
-        // Removed New Chat Button event listener
-        // newChatButton.addEventListener('click', startNewChat);
-
-        // Removed Toggle Sidebar event listener
-        // toggleSidebarBtn.addEventListener('click', () => {
-        //     chatHistorySidebar.classList.toggle('open');
-        // });
-
-        // Removed Close Sidebar event listener
-        // closeSidebarBtn.addEventListener('click', () => {
-        //     chatHistorySidebar.classList.remove('open');
-        // });
-
         // --- Initial Setup on DOM Load ---
         document.addEventListener('DOMContentLoaded', () => {
             // Check initial auth state
@@ -1200,10 +1417,7 @@
                     sendButton.disabled = false;
                     messageInputArea.classList.remove('pointer-events-none', 'opacity-50'); // Ensure input is enabled
 
-                    // Removed sidebar and new chat button UI adjustments for logged-in users
-                    // toggleSidebarBtn.classList.remove('hidden');
-                    // chatHistorySidebar.classList.remove('hidden');
-                    // await loadChatThreads(user.uid); // Removed: Load user's chat threads
+                    toggleModelDropdownAvailability(true); // Enable model selection for logged-in users
 
                 } else {
                     // Guest user
@@ -1211,9 +1425,6 @@
                     loginButton.classList.remove('hidden');
                     userAvatarDiv.classList.add('hidden');
                     logoutButton.classList.add('hidden');
-                    // Removed sidebar UI adjustments for guest users
-                    // toggleSidebarBtn.classList.add('hidden');
-                    // chatHistorySidebar.classList.add('hidden');
 
                     guestMessageCount = parseInt(localStorage.getItem('guestMessageCount') || '0');
                     if (guestMessageCount >= MAX_GUEST_MESSAGES) {
@@ -1228,10 +1439,16 @@
                     }
                     chatHistory = []; // Clear chat history for guests
                     renderChatHistory(); // Render initial welcome message for guests
+
+                    // Revert to default model and disable others for guests
+                    currentModelId = 'gemini-flash';
+                    currentModel = LLM_MODELS[currentModelId];
+                    updateModelDropdownSelection();
+                    toggleModelDropdownAvailability(false); // Disable model selection for guests
                 }
+                updateModelDropdownSelection(); // Ensure initial selection is visible
             });
         });
     </script>
 </body>
 </html>
-
